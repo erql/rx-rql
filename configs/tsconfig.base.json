@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "declaration": false,
+        "outDir": "../dist/",
+        "target": "es5",
+        "module": "es2015",
+        "moduleResolution": "node",
+        "importHelpers": true,
+        "downlevelIteration": true,
+        "noImplicitAny": false,
+        "noUnusedLocals": false,
+        "lib": [
+            "es5",
+            "ES2017.Object"
+        ],
+        "types": [ "node" ]
+    }
+}
