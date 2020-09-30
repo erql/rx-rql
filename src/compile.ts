@@ -1,7 +1,7 @@
 import { isObservable, Observable, Subject } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
-function _collectDeps<T>(nodes: INode<T>[]) {
+function collectDeps<T>(nodes: INode<T>[]) {
     const deps = new Set<Observable<T>>();
     nodes.forEach(node => {
         node.deps.forEach(dep => {
@@ -13,127 +13,215 @@ function _collectDeps<T>(nodes: INode<T>[]) {
 
 type InputValue<T> = Observable<T> | INode<T>;
 
-enum NodeType {
+enum Type {
     one = 'one',
     many = 'many',
     group = 'group',
     mute = 'mute',
 }
 
-interface INode<A = any> {
-    type: NodeType;
-    deps: Set<Observable<A>>;
-    output: Subject<A>; // TODO: make it Observable<A>
-    handleEmission(o: Observable<A>, value: A): void;
-    matchesEmission(o: Observable<A>): boolean;
+enum Status {
+    greedy = 'greedy',
+    unsatisfied = 'unsatisfied',
+    done = 'done'
 }
 
-function compileNode<T>(node: InputValue<T>): INode {
-    if (isObservable(node)) {
-        return one(node);
+interface RunTimeNode<A> {
+    output: Subject<A>; // TODO: make it Observable<A>
+    status(): Status;
+    matchesEmission(o: Observable<A>): boolean;
+    handleEmission(o: Observable<A>, value: A): void;
+}
+
+interface INode<A = any> {
+    type: Type;
+    deps: Set<Observable<A>>;
+    create(): RunTimeNode<A>;
+}
+
+function compileNode<T>(input: InputValue<T>): INode {
+    if (isObservable(input)) {
+        return one(input);
     }
 
-    return node;
+    return input;
 }
 
 export function one<T>(o: Observable<T>): INode<T> {
-    const output = new Subject<T>();
     const deps = new Set<Observable<T>>();
     deps.add(o);
 
     return {
-        type: NodeType.one,
+        type: Type.one,
         deps,
-        output,
-        handleEmission: (_, v) => {
-            output.next(v);
-        },
-        matchesEmission: s => s === o
-    }
-}
+        create(){
+            const output = new Subject<T>();
+            let status = Status.unsatisfied;
 
-export function many<T>(..._nodes: InputValue<T>[]): INode<T> {
-    const root = group(..._nodes);
-
-    return {
-        type: NodeType.many,
-        deps: root.deps,
-        output: root.output,
-        handleEmission: root.handleEmission,
-        matchesEmission: root.matchesEmission
-    }
-}
-
-export function mute<T>(..._nodes: InputValue<T>[]): INode<T> {
-    const root = group(..._nodes);
-
-    return {
-        type: NodeType.mute,
-        deps: root.deps,
-        output: new Subject<T>(),
-        handleEmission: () => void 0, // do nothing
-        matchesEmission: root.matchesEmission
-    }
-}
-
-export function group<T>(..._nodes: InputValue<T>[]): INode<T> {
-    // cut short if its a group of a group
-    if (_nodes.length == 1 && !isObservable(_nodes[0]) && _nodes[0].type == NodeType.group) {
-        return _nodes[0];
-    }
-
-    const output = new Subject<T>();
-    const nodes = _nodes.map(compileNode);
-    const deps = _collectDeps(nodes);
-
-    // iteration state
-    let currIndex = 0;
-
-    function handleEmission(o: Observable<T>, value) {
-        const node = nodes[currIndex];
-
-        // checking for greedy MANY operator
-        if (node.type == NodeType.many) {
-            const nextNode = nodes[currIndex + 1];
-            if (nextNode && nextNode.matchesEmission(o)) {
-                currIndex++;
-                return handleEmission(o, value);
-            } else if (node.matchesEmission(o)) {
-                output.next(value);
+            return {
+                output,
+                status: () => status,
+                handleEmission(_, v) {
+                    status = Status.done;
+                    output.next(v);
+                },
+                matchesEmission: s => s === o
             }
-        } else {
-            if (node.matchesEmission(o)) {
-                const sub = node.output.subscribe(v => {
+        }
+    }
+}
+
+export function many<T>(...inputs: InputValue<T>[]): INode<T> {
+    const root = group(...inputs);
+
+    return {
+        type: Type.many,
+        deps: root.deps,
+        create() {
+            let r = root.create();
+            let output = new Subject<T>();
+
+            return {
+                output,
+                status: () => Status.greedy, // always greedy
+                handleEmission(o, value) {
+                    const sub = r.output.subscribe(v => {
+                        output.next(v);
+                    });
+
+                    r.handleEmission(o, value);
+                    if (r.status() == Status.done) {
+                        r = root.create();
+                    }
+
+                    sub.unsubscribe();
+                },
+                matchesEmission(o){
+                    return r.matchesEmission(o);
+                }
+            }
+        }
+    }
+}
+
+export function mute<T>(...inputs: InputValue<T>[]): INode<T> {
+    const root = group(...inputs);
+
+    return {
+        type: Type.mute,
+        deps: root.deps,
+        create(){
+            const r = root.create();
+            // TODO: complete output
+            const output = new Subject<T>();
+
+            return {
+                output,
+                status: r.status,
+                handleEmission: r.handleEmission,
+                matchesEmission: r.matchesEmission
+            }
+        }
+    }
+}
+
+export function group<T>(...inputs: InputValue<T>[]): INode<T> {
+    // cut short if its a group of a group
+    if (inputs.length == 1 && !isObservable(inputs[0]) && inputs[0].type == Type.group) {
+        return inputs[0];
+    }
+
+    const compiled = inputs.map(compileNode);
+    const deps = collectDeps(compiled);
+
+    return {
+        type: Type.group,
+        deps,
+        create,
+    }
+
+    function create(){
+        const output = new Subject<T>();
+        const ns = compiled.map(n => n.create());
+
+        // let status = ns.length ? ns[0].status() : Status.done;
+        let status = Status.unsatisfied;
+
+        // iteration state
+        let currIndex = 0;
+
+        return {
+            output,
+            status: () => status,
+            handleEmission,
+            matchesEmission
+        }
+
+        function handleEmission(o: Observable<T>, value): Status {
+            const n = ns[currIndex];
+
+            const n_status = n.status();
+            if (n_status == Status.greedy) {
+                const nextNode = ns[currIndex + 1];
+
+                if (nextNode && nextNode.matchesEmission(o)) {
+                    currIndex++;
+                    return handleEmission(o, value);
+                }
+            }
+
+            if (n.matchesEmission(o)) {
+                const sub = n.output.subscribe(v => {
                     output.next(v);
                 });
-                node.handleEmission(o, value);
+                n.handleEmission(o, value);
                 sub.unsubscribe();
-                currIndex += 1;
+
+                if (n.status() == Status.done) {
+                    currIndex++;
+                }
+            }
+
+
+            // if (node.type == Type.many) {
+            //     const nextNode = ns[currIndex + 1];
+            //     if (nextNode && nextNode.matchesEmission(o)) {
+            //         currIndex++;
+            //         return handleEmission(o, value);
+            //     } else if (n.matchesEmission(o)) {
+            //         output.next(value);
+            //     }
+            // } else {
+            //     if (n.matchesEmission(o)) {
+            //         const sub = n.output.subscribe(v => {
+            //             output.next(v);
+            //         });
+            //         n.handleEmission(o, value);
+            //         sub.unsubscribe();
+            //         currIndex += 1;
+            //     }
+            // }
+
+            // check if capturing group should be completed
+            if (currIndex > compiled.length - 1) {
+                status = Status.done;
+                output.complete();
+            } else {
+                // TODO: this is doubtful for ABC*
+                // at C* we may return greedy
+                status = Status.unsatisfied;
             }
         }
 
-        // check if capturing group should be completed
-        if (currIndex > nodes.length - 1) {
-            output.complete();
+        function matchesEmission(o) {
+            // Emtpy group matches any emission
+            if (compiled.length == 0) {
+                return true;
+            }
+
+            // check if first value matches
+            return ns[0].matchesEmission(o);
         }
-    }
-
-    function matchesEmission(o) {
-        // Emtpy group matches any emission
-        if (nodes.length == 0) {
-            return true;
-        }
-
-        // check if first value matches
-        return nodes[0].matchesEmission(o);
-    }
-
-    return {
-        type: NodeType.group,
-        deps,
-        output,
-        matchesEmission,
-        handleEmission
     }
 }
 
@@ -152,13 +240,14 @@ function query<T>(...values: InputValue<T>[]) {
     // query will immediately subscribe
 
     const rootGroup = group(...values);
+    const r = rootGroup.create();
 
     const entries = Array.from(rootGroup.deps.values(), stream => {
         const subscription = stream.subscribe({
-            next: value => rootGroup.handleEmission(stream, value),
+            next: value => r.handleEmission(stream, value),
             complete: () => {
                 // hacky way to complete output and unsubscribe all streams
-                rootGroup.output.complete()
+                r.output.complete()
             }
         })
 
@@ -168,7 +257,7 @@ function query<T>(...values: InputValue<T>[]) {
         }
     });
 
-    return rootGroup.output.pipe(
+    return r.output.pipe(
         tap({
             complete() {
                 entries.forEach(e => e.subscription.unsubscribe())
@@ -178,3 +267,19 @@ function query<T>(...values: InputValue<T>[]) {
 }
 
 export { query, query as $ };
+
+/** Q:
+ * how to handle `(AB)*_AC` ?
+ * there are two possible matches at t4:
+ * again group `(AB)` or follow `_AC`
+ *
+ * ˚  0123456789
+ * A  --a-a-----
+ * B  ---b------
+ * C  -----c----
+ * =  --ab------
+ *
+ * A: the decision of emitting or not A
+ * should be done when we receive B or C at t5
+ *
+ */

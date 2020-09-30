@@ -1,6 +1,11 @@
 import { marbles } from 'rxjs-marbles/jest';
 import { $, group, many, mute } from './compile';
 
+// These tests use string query notation
+// ABC   -- select 1 emission from A,B,C streams
+// A*    -- select 0 and more emissions from A stream
+// _A    -- select 1 emission from A stream, and ignore it
+// (AB)  -- a group of A,B streams
 describe('Compilation', () => {
 
     describe('ABC', () => {
@@ -102,7 +107,7 @@ describe('Compilation', () => {
             m.expect(result).toBeObservable(expectd);
         }));
 
-        test('(_AB*_C)*', marbles(m => {
+        xtest('(_AB*_C)*', marbles(m => {
             const A = m.hot('^----0-----0----|')
             const B = m.hot('^-1-2-3-4-5-6-7-|')
             const C = m.hot('^--------0---0--|')
@@ -114,6 +119,7 @@ describe('Compilation', () => {
             );
             m.expect(result).toBeObservable(expectd);
         }));
+
     })
 })
 
