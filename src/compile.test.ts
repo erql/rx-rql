@@ -1,97 +1,49 @@
 import { marbles } from 'rxjs-marbles/jest';
-import { compile } from './compile';
-import { AST } from './ast';
+import { many, query } from './compile';
 
 describe('Compilation', () => {
 
-    describe('AB', () => {
-        test('A', marbles(m => {
-            /**
-             *      `A`
-             */
-            const ast: AST = {
-                root: {
-                    type: 'EXPRESSION',
-                    content: [{ type: 'STREAM', content: 'A' }]
-                }
-            };
+    test('A', marbles(m => {
+        const A = m.hot('^-1-2-3-|')
+        const result  = query(A);
+        const expected = '^-(1|)'
 
-            const A = m.hot('^-1-2-3-|')
-            const expected ='^-(1|)'
-            const dep = { A };
+        m.expect(result).toBeObservable(expected);
+    }))
 
-            const result = compile(ast, dep);
-            m.expect(result).toBeObservable(expected);
-        }));
-
-        test('AB', marbles(m => {
-            /**
-             *      `AB`
-             */
-            const ast: AST = {
-                root: {
-                    type: 'EXPRESSION',
-                    content:
-                        [ { type: 'STREAM', content: 'A' }
-                        , { type: 'STREAM', content: 'B' }
-                        ]
-                }
-            };
-
-            const A = m.hot('^-1-----|')
-            const B = m.hot('^---2---|')
-            const expected ='^-1-(2|)'
-            const dep = { A, B };
-
-            const result = compile(ast, dep);
-            m.expect(result).toBeObservable(expected);
-        }));
-
-        // TODO: use jest-in-case
-        test('AB', marbles(m => {
-            /**
-             *      `AB`
-             */
-            const ast: AST = {
-                root: {
-                    type: 'EXPRESSION',
-                    content:
-                        [ { type: 'STREAM', content: 'A' }
-                        , { type: 'STREAM', content: 'B' }
-                        ]
-                }
-            };
-
-            const A = m.hot('^-135---|')
-            const B = m.hot('^---246-|')
-            const expected ='^-1-(2|)'
-            const dep = { A, B };
-
-            const result = compile(ast, dep);
-            m.expect(result).toBeObservable(expected);
-        }));
-    });
+    test('AB', marbles(m => {
+        const A = m.hot('^-1-----|')
+        const B = m.hot('^---2---|')
+        const expected ='^-1-(2|)'
+        const result = query(A, B);
+        m.expect(result).toBeObservable(expected);
+    }));
 
     describe('AB*C', () => {
         test('A*', marbles(m => {
-            /**
-             *      `A*`
-             */
-            const ast: AST = {
-                root: {
-                    type: 'EXPRESSION',
-                    content: [{ type: 'REPEAT', content: { type: 'STREAM', content: 'A' } }]
-                }
-            };
-
             const A = m.hot('^-1-2-3-|')
             const expected ='^-1-2-3-|'
-            const dep = { A };
+            const result = query(many(A));
+            m.expect(result).toBeObservable(expected);
+		}));
 
-            const result = compile(ast, dep);
+        test('A*B', marbles(m => {
+            const A = m.hot('^-1-2-3-|')
+            const B = m.hot('^----0--|')
+            const expected ='^-1-2(0|)'
+			const result = query(many(A), B);
+            m.expect(result).toBeObservable(expected);
+		}));
+
+        test('AB*C', marbles(m => {
+			const A = m.hot('^----0----------|')
+			const B = m.hot('^-1-2-3-4-5-6-7-|')
+			const C = m.hot('^------------0--|')
+			const expected= '^----03-4-5-6(0|)'
+			const result = query(A, many(B), C);
             m.expect(result).toBeObservable(expected);
         }));
-    })
+    });
 
 })
 

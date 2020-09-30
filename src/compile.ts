@@ -1,48 +1,45 @@
-import { AST, ASTNode, ExpressionNode, RepeatNode, StreamNode } from './ast';
-import { Dependencies } from '../src';
-import { Subject } from 'rxjs';
+import { isObservable, Observable, Subject } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
-function compileNode(node: ASTNode) {
-    if (node.type == 'REPEAT') {
-        return compileRepeat(node);
-    }
-
-    if (node.type == 'STREAM') {
-        return compileStream(node);
-    }
+function _collectDeps(nodes: any[]) {
+    const deps = new Set<Observable<any>>();
+    nodes.forEach(node => {
+        node.deps.forEach(dep => {
+            deps.add(dep);
+        })
+    });
+    return deps;
 }
 
-function compileStream(node: StreamNode) {
-    function matchesEmission(key) {
-        return key == node.content;
+function compileNode(node) {
+    if (isObservable(node)) {
+        return {
+            type: 'STREAM',
+            deps: new Set([node]),
+            matchesEmission: s => s === node
+        }
     }
+
+    return node;
+}
+
+export function many(..._nodes) {
+    const node = compileGroup(_nodes);
 
     return {
-        type: node.type,
-        matchesEmission,
+        type: 'REPEAT',
+        deps: node.deps,
+        matchesEmission: node.matchesEmission
     }
 }
 
-function compileRepeat(node: RepeatNode){
-    const childNode = compileStream(node.content);
-
-    function matchesEmission(key) {
-        return childNode.matchesEmission(key);
-    }
-
-    return {
-        type: node.type,
-        matchesEmission,
-    }
-}
-
-function compileExpression(node: ExpressionNode) {
+function compileGroup(_nodes: any[]) {
     const output = new Subject();
     let currIndex = 0;
-    const nodes = node.content.map(compileNode);
+    const nodes = _nodes.map(compileNode);
+    const deps = _collectDeps(nodes);
 
-    function handleEmission(key, value){
+    function handleEmission(key, value) {
         const currNode = nodes[currIndex];
         let completed = false;
 
@@ -77,36 +74,33 @@ function compileExpression(node: ExpressionNode) {
     }
 
     return {
-        type: node.type,
+        type: 'GROUP',
         matchesEmission,
+        deps,
         output,
         handleEmission
     }
 }
 
-function compile(ast: AST, deps: Dependencies) {
-    if (ast.root.type != 'EXPRESSION') {
-        throw 'root should be an expression';
-    }
+function query(...values: any[]) {
+    const rootGroup = compileGroup(values);
 
-    const rootNode = compileExpression(ast.root);
-
-    const entries = Object.entries(deps).map(([key, stream]) => {
+    const entries = Array.from(rootGroup.deps.values(), stream => {
         const subscription = stream.subscribe({
-            next: value => rootNode.handleEmission(key, value),
+            next: value => rootGroup.handleEmission(stream, value),
             complete: () => {
                 // hacky way to complete output and unsubscribe all streams
-                rootNode.output.complete()
+                rootGroup.output.complete()
             }
         })
 
         return {
-            key,
+            stream,
             subscription
         }
     });
 
-    return rootNode.output.pipe(
+    return rootGroup.output.pipe(
         tap({
             complete() {
                 entries.forEach(e => e.subscription.unsubscribe())
@@ -115,4 +109,4 @@ function compile(ast: AST, deps: Dependencies) {
     );
 }
 
-export { compile }
+export { query };
