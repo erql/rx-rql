@@ -1,8 +1,8 @@
 import { isObservable, Observable, Subject } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
-function _collectDeps(nodes: any[]) {
-    const deps = new Set<Observable<any>>();
+function _collectDeps<T>(nodes: INode<T>[]) {
+    const deps = new Set<Observable<T>>();
     nodes.forEach(node => {
         node.deps.forEach(dep => {
             deps.add(dep);
@@ -53,30 +53,35 @@ export function one<T>(o: Observable<T>): INode<T> {
 }
 
 export function many<T>(..._nodes: InputValue<T>[]): INode<T> {
-    const node = compileGroup(_nodes);
+    const root = group(..._nodes);
 
     return {
         type: NodeType.many,
-        deps: node.deps,
-        output: node.output,
-        handleEmission: node.handleEmission,
-        matchesEmission: node.matchesEmission
+        deps: root.deps,
+        output: root.output,
+        handleEmission: root.handleEmission,
+        matchesEmission: root.matchesEmission
     }
 }
 
 export function mute<T>(..._nodes: InputValue<T>[]): INode<T> {
-    const group = compileGroup(_nodes);
+    const root = group(..._nodes);
 
     return {
         type: NodeType.mute,
-        deps: group.deps,
+        deps: root.deps,
         output: new Subject<T>(),
         handleEmission: () => void 0, // do nothing
-        matchesEmission: group.matchesEmission
+        matchesEmission: root.matchesEmission
     }
 }
 
-function compileGroup<T>(_nodes: InputValue<T>[]): INode<T> {
+export function group<T>(..._nodes: InputValue<T>[]): INode<T> {
+    // cut short if its a group of a group
+    if (_nodes.length == 1 && !isObservable(_nodes[0]) && _nodes[0].type == NodeType.group) {
+        return _nodes[0];
+    }
+
     const output = new Subject<T>();
     const nodes = _nodes.map(compileNode);
     const deps = _collectDeps(nodes);
@@ -132,8 +137,21 @@ function compileGroup<T>(_nodes: InputValue<T>[]): INode<T> {
     }
 }
 
+/**
+ * Query observables
+ *
+ * ```ts
+ * query(A, many(B), C)
+ *   .pipe(…)
+ *   .subscribe(v => console.log(v));
+ * ```
+ *
+ * @param values Observables or Operators
+ */
 function query<T>(...values: InputValue<T>[]) {
-    const rootGroup = compileGroup(values);
+    // query will immediately subscribe
+
+    const rootGroup = group(...values);
 
     const entries = Array.from(rootGroup.deps.values(), stream => {
         const subscription = stream.subscribe({
@@ -159,4 +177,4 @@ function query<T>(...values: InputValue<T>[]) {
     );
 }
 
-export { query };
+export { query, query as $ };
