@@ -1,5 +1,5 @@
 import { marbles } from 'rxjs-marbles/jest';
-import { $, group, many, mute } from './compile';
+import { $, mute, some } from './compile';
 
 // These tests use string query notation
 // ABC   -- select 1 emission from A,B,C streams
@@ -41,7 +41,7 @@ describe('Compilation', () => {
         test('A*', marbles(m => {
             const A = m.hot('^-1-2-3-')
             const expectd = '^-1-2-3-'
-            const result = $(many(A));
+            const result = $(some(A));
             m.expect(result).toBeObservable(expectd);
         }));
 
@@ -49,7 +49,7 @@ describe('Compilation', () => {
             const A = m.hot('^-1-2-3-|')
             const B = m.hot('^----0--|')
             const expectd = '^-1-2(0|)'
-            const result = $(many(A), B);
+            const result = $(some(A), B);
             m.expect(result).toBeObservable(expectd);
         }));
 
@@ -58,7 +58,7 @@ describe('Compilation', () => {
             const B = m.hot('^-1-2-3-4-5-6-7-|')
             const C = m.hot('^------------0--|')
             const expectd = '^----03-4-5-6(0|)'
-            const result = $(A, many(B), C);
+            const result = $(A, some(B), C);
             m.expect(result).toBeObservable(expectd);
         }));
     });
@@ -86,16 +86,24 @@ describe('Compilation', () => {
             const B = m.hot('^-1-2-3-4-5-6-7-|')
             const C = m.hot('^------------0--|')
             const expectd = '^-----3-4-5-6|'
-            const result = $(mute(A), many(B), mute(C));
+            const result = $(mute(A), some(B), mute(C));
             m.expect(result).toBeObservable(expectd);
         }));
     });
 
-    describe('A(BC)', () => {
-        test('(A)', marbles(m => {
-            const A = m.hot('^-1-----|')
-            const expectd = '^-(1|)'
-            const result = $(group(A));
+    describe('(ABC)', () => {
+        test('(A)*', marbles(m => {
+            const A = m.hot('^-a-a-a-')
+            const expectd = '^-a-a-a-'
+            const result = $(some(A));
+
+            m.expect(result).toBeObservable(expectd);
+        }));
+
+        test('_(A)', marbles(m => {
+            const A = m.hot('^-a-a-a-')
+            const expectd = '^-|'
+            const result = $(mute(A));
 
             m.expect(result).toBeObservable(expectd);
         }));
@@ -103,7 +111,15 @@ describe('Compilation', () => {
         test('_(A*)', marbles(m => {
             const A = m.hot('^1-2-3-4')
             const expectd = '^-------'
-            const result = $(mute(many(A)));
+            const result = $(mute(some(A)));
+
+            m.expect(result).toBeObservable(expectd);
+        }));
+
+        test('(_A)*', marbles(m => {
+            const A = m.hot('^1-2-3-4')
+            const expectd = '^-------'
+            const result = $(some(mute(A)));
 
             m.expect(result).toBeObservable(expectd);
         }));
@@ -112,19 +128,29 @@ describe('Compilation', () => {
             const A = m.hot('^-1-----')
             const B = m.hot('^1-2-3-4')
             const expectd = '^-12-3-4'
-            const result = $(A, many(group(B)));
+            const result = $(A, some(B));
 
             m.expect(result).toBeObservable(expectd);
         }));
 
-        test.only('(AB)*', marbles(m => {
+        test('(AB)*', marbles(m => {
+            const A = m.hot('^--a-a-')
+            const B = m.hot('^-b-b-b')
+            const expectd = '^--abab'
+            const result = $(some(A, B));
+
+            m.expect(result).toBeObservable(expectd);
+        }));
+
+        test('(AB)_', marbles(m => {
             const A = m.hot('^-a-a-')
             const B = m.hot('^b-b-b')
-            const expectd = '^-abab'
-            const result = $(many(A, B));
+            const expectd = '^--|'
+            const result = $(mute(A, B));
 
             m.expect(result).toBeObservable(expectd);
         }));
+
 
         test('(ABC)*', marbles(m => {
             const A = m.hot('^----a-----b----')
@@ -132,7 +158,7 @@ describe('Compilation', () => {
             const C = m.hot('^--------z---y--')
             const expectd = '^----a3--z-b6y--'
             const result = $(
-                many(
+                some(
                     A, B, C
                 )
             );
@@ -145,13 +171,23 @@ describe('Compilation', () => {
             const C = m.hot('^--------0---0--')
             const expectd = '^-----3-4---6---'
             const result = $(
-                many(
-                    mute(A), many(B), mute(C)
+                some(
+                    mute(A), some(B), mute(C)
                 )
             );
             m.expect(result).toBeObservable(expectd);
         }));
 
+        test('(AB)*_A', marbles(m => {
+            const A = m.hot('^--a---a-')
+            const B = m.hot('^-1-2-3-4')
+            const expectd = '^--|'
+            const result = $(
+                some(A, B)
+                , mute(A)
+            );
+            m.expect(result).toBeObservable(expectd);
+        }));
     })
 })
 

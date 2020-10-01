@@ -5,8 +5,8 @@ function Operator<T>(fn: (node: INode<T>) => RunTimeNode<T>) {
         const inputs = _inputs.map(compileNode);
         const deps = collectDeps(inputs);
         const root = inputs.length > 1
-            ? inputs[0]
-            : group(...inputs)
+            ? group(...inputs)
+            : inputs[0]
 
         const create = () => fn(root);
 
@@ -31,7 +31,7 @@ type InputValue<T> = Observable<T> | INode<T>;
 
 enum Status {
     greedy = 'greedy',
-    unsatisfied = 'unsatisfied',
+    undone = 'undone',
     done = 'done'
 }
 
@@ -61,11 +61,11 @@ export function one<T>(o: Observable<T>): INode<T> {
     return {
         deps,
         create() {
-            let status = Status.unsatisfied;
+            let status = Status.undone;
 
             return {
                 status: () => status,
-                handleEmission(_, v, onNext) {
+                handleEmission(_o, v, onNext) {
                     status = Status.done;
                     onNext(v);
                 },
@@ -75,7 +75,7 @@ export function one<T>(o: Observable<T>): INode<T> {
     }
 }
 
-export const many = Operator(root => {
+export const some = Operator(root => {
     let r = root.create();
     let started = false;
 
@@ -91,13 +91,8 @@ export const many = Operator(root => {
         },
 
         handleEmission(o, value, onNext) {
-            if (!r.matchesEmission(o)){
-                return;
-            }
-
             started = true;
 
-            // console.log('many:HE', value);
             let hasValue = false;
             let _value = void 0;
 
@@ -127,16 +122,13 @@ export const mute = Operator((root) => {
     return {
         status: r.status,
         handleEmission(o, value) {
-            // console.log('mute:HE', value);
             r.handleEmission(o, value, () => { });
         },
         matchesEmission: r.matchesEmission
     }
 });
 
-export function group<T>(..._inputs: InputValue<T>[]): INode<T> {
-    const inputs = _inputs.map(compileNode);
-
+export function group<T>(...inputs: INode<T>[]): INode<T> {
     // cut short if its a group of a group
     if (inputs.length == 1) {
         return inputs[0];
@@ -153,54 +145,50 @@ export function group<T>(..._inputs: InputValue<T>[]): INode<T> {
         const nodes = inputs.map(n => n.create());
 
         // iteration state
-        let currIndex = 0;
+        let index = 0;
 
         return {
             status,
             handleEmission,
-            matchesEmission
+            matchesEmission: (o) => matchesEmission(index, o)
         }
 
         function status() {
             // check if group should be completed
-            if (currIndex >= inputs.length) {
-                console.log('GROUP STATUS DONE');
+            if (index >= inputs.length) {
                 return Status.done;
             }
 
             let status;
-            for (let i = inputs.length - 1; i >= currIndex; i--) {
-                const nodeStatus = nodes[currIndex].status();
-                if (nodeStatus == Status.unsatisfied) {
+            for (let i = inputs.length - 1; i >= index; i--) {
+                const nodeStatus = nodes[index].status();
+                if (nodeStatus == Status.undone) {
                     status = nodeStatus;
                     break;
                 }
 
-                if (!status && nodeStatus == Status.greedy) {
+                if (nodeStatus == Status.greedy) {
                     status = nodeStatus;
                     continue;
                 }
             }
 
-            console.log('GROUP STATUS', status);
             return status ?? Status.done;
         }
 
         function handleEmission(o: Observable<T>, value, onNext): Status {
-            if (currIndex > nodes.length - 1) {
-                throw new Error(`Index out of bounds ${currIndex} | ${value}`);
+            if (index > nodes.length - 1) {
+                throw new Error(`Index out of bounds ${index} | ${value}`);
             }
 
-            const node = nodes[currIndex];
+            const node = nodes[index];
 
-            const nodeStatus = node.status();
-            if (nodeStatus == Status.greedy) {
-                const nextNode = nodes[currIndex + 1];
-
-                if (nextNode && nextNode.matchesEmission(o)) {
-                    currIndex++;
-                    return handleEmission(o, value, onNext);
-                }
+            if (node.status() == Status.greedy
+                && index < nodes.length - 1
+                && matchesEmission(index + 1, o)
+            ) {
+                index++;
+                return handleEmission(o, value, onNext);
             }
 
             if (node.matchesEmission(o)) {
@@ -213,7 +201,7 @@ export function group<T>(..._inputs: InputValue<T>[]): INode<T> {
                 });
 
                 if (node.status() == Status.done) {
-                    currIndex++;
+                    index++;
                 }
 
                 if (hasValue){
@@ -222,18 +210,13 @@ export function group<T>(..._inputs: InputValue<T>[]): INode<T> {
             }
         }
 
-        function matchesEmission(o) {
-            // Emtpy group matches any emission
-            // if (inputs.length == 0) {
-            //     return true;
-            // }
-
+        function matchesEmission(index, o) {
             // check if first value matches
             // NOTE: this is probably wrong
-            for (let i = currIndex; i < nodes.length; i++) {
+            for (let i = index; i < nodes.length; i++) {
                 const node = nodes[i];
                 const status = node.status();
-                if (status == Status.unsatisfied) {
+                if (status == Status.undone) {
                     return node.matchesEmission(o)
                 }
 
@@ -261,7 +244,9 @@ function query<T>(...values: InputValue<T>[]) {
     // query will immediately subscribe
     // TODO: refactor to new Observable(...)
 
-    const rootGroup = group(...values);
+    const nodes = values.map(compileNode);
+    const rootGroup = group(...nodes);
+
     const r = rootGroup.create();
 
     const output = new Subject();
@@ -269,6 +254,10 @@ function query<T>(...values: InputValue<T>[]) {
     const entries = Array.from(rootGroup.deps.values(), stream => {
         const subscription = stream.subscribe({
             next(value) {
+                if (!r.matchesEmission(stream)) {
+                    return;
+                }
+
                 r.handleEmission(stream, value, (value) => {
                     output.next(value);
                 });
