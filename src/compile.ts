@@ -1,4 +1,4 @@
-import { isObservable, Observable, Subject } from 'rxjs';
+import { isObservable, Observable, Subscription } from 'rxjs';
 
 function Operator<T>(fn: (node: INode<T>) => RunTimeNode<T>) {
     return (..._inputs: InputValue<T>[]): INode => {
@@ -30,15 +30,15 @@ function collectDeps<T>(nodes: INode<T>[]) {
 type InputValue<T> = Observable<T> | INode<T>;
 
 enum Status {
-    greedy = 'greedy',
-    undone = 'undone',
-    done = 'done'
+    greedy,
+    undone,
+    done
 }
 
 interface RunTimeNode<A> {
     status(): Status;
-    matchesEmission(o: Observable<A>): boolean;
-    handleEmission(o: Observable<A>, value: A, onNext?: (v: A) => void): void;
+    match(o: Observable<A>): boolean;
+    next(o: Observable<A>, value: A, onNext?: (v: A) => void): void;
 }
 
 interface INode<A = any> {
@@ -70,11 +70,11 @@ export function one<T>(o: Observable<T>): INode<T> {
 
             return {
                 status: () => status,
-                handleEmission(_o, v, onNext) {
+                next(_o, v, onNext) {
                     status = Status.done;
                     onNext(v);
                 },
-                matchesEmission: s => s === o
+                match: s => s === o
             }
         }
     }
@@ -98,13 +98,13 @@ export const some = Operator(root => {
             return Status.greedy;
         },
 
-        handleEmission(o, value, onNext) {
+        next(o, value, onNext) {
             started = true;
 
             let hasValue = false;
             let _value = void 0;
 
-            r.handleEmission(o, value, v => {
+            r.next(o, value, v => {
                 hasValue = true;
                 _value = v;
             });
@@ -118,8 +118,8 @@ export const some = Operator(root => {
                 onNext(_value);
             }
         },
-        matchesEmission(o) {
-            return r.matchesEmission(o);
+        match(o) {
+            return r.match(o);
         }
     }
 });
@@ -132,10 +132,10 @@ export const mute = Operator((root) => {
 
     return {
         status: r.status,
-        handleEmission(o, value) {
-            r.handleEmission(o, value, () => { });
+        next(o, value) {
+            r.next(o, value, () => { });
         },
-        matchesEmission: r.matchesEmission
+        match: r.match
     }
 });
 
@@ -165,8 +165,8 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
 
         return {
             status,
-            handleEmission,
-            matchesEmission: (o) => matchesEmission(index, o)
+            next,
+            match: (o) => match(index, o)
         }
 
         function status() {
@@ -192,22 +192,22 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
             return status ?? Status.done;
         }
 
-        function handleEmission(o: Observable<T>, value, onNext): Status {
+        function next(o: Observable<T>, value, onNext): Status {
             const node = nodes[index];
 
             if (node.status() == Status.greedy
                 && index < nodes.length - 1
-                && matchesEmission(index + 1, o)
+                && match(index + 1, o)
             ) {
                 index++;
-                return handleEmission(o, value, onNext);
+                return next(o, value, onNext);
             }
 
-            if (node.matchesEmission(o)) {
+            if (node.match(o)) {
                 let hasValue = false;
                 let _value = void 0;
 
-                node.handleEmission(o, value, v => {
+                node.next(o, value, v => {
                     hasValue = true;
                     _value = v;
                 });
@@ -222,16 +222,16 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
             }
         }
 
-        function matchesEmission(index, o) {
+        function match(index, o) {
             // check if current or next inputs matches
             for (let i = index; i < nodes.length; i++) {
                 const node = nodes[i];
                 const status = node.status();
                 if (status == Status.undone) {
-                    return node.matchesEmission(o)
+                    return node.match(o)
                 }
 
-                if (status == Status.greedy && node.matchesEmission(o)) {
+                if (status == Status.greedy && node.match(o)) {
                     return true;
                 }
             }
@@ -258,26 +258,25 @@ function query<T>(...values: InputValue<T>[]) {
 
         const r = rootGroup.create();
 
-        const output = new Subject();
-        const sub = output.subscribe(observer);
+        const sub = new Subscription();
 
         rootGroup.deps.forEach(o => {
             const _sub = o.subscribe({
                 next(value) {
-                    if (!r.matchesEmission(o)) {
+                    if (!r.match(o)) {
                         return;
                     }
 
-                    r.handleEmission(o, value, (value) => {
-                        output.next(value);
+                    r.next(o, value, (value) => {
+                        observer.next(value);
                     });
 
                     if (r.status() == Status.done) {
-                        output.complete();
+                        observer.complete();
                     }
                 },
                 error(err){
-                    output.error(err);
+                    observer.error(err);
                 }
                 // TODO: completions
             });
