@@ -53,7 +53,7 @@ query(A, A).subscribe(console.log); // > H > i
 
 // A Hi--------
 // B World-----
-// = (HW)------
+// = (HW|)
 const A = of('H', 'i');
 const B = of('W', 'o', 'r', 'l', 'd');
 query(A, B).subscribe(console.log); // > H > W
