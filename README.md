@@ -28,7 +28,7 @@ Query events from multiple streams
 npm i rx-rql
 ```
 
-Or **try it online**
+Or [**try it online**](https://stackblitz.com/edit/rx-rql?file=index.ts)
 
 ## 🔧 API
 
