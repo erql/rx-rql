@@ -1,12 +1,14 @@
 {
     "compilerOptions": {
-        "lib": [
-            "ES2015",
-            "ES2017"
-        ]
-    },
-    "exclude": [
-        "node_modules",
-        "dist"
-    ]
+        "declaration": true,
+        "outDir": "./dist/",
+        "noImplicitAny": false,
+        "noUnusedLocals": false,
+        "moduleResolution": "node",
+        "module": "commonjs",
+        "target": "es2015",
+        "sourceMap": true,
+        "downlevelIteration": false,
+        "lib": []
+    }
 }
