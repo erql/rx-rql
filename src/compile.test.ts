@@ -1,6 +1,11 @@
 import { marbles } from 'rxjs-marbles/jest';
 import { $, mute, some } from './compile';
 
+// TODO:
+// - test errors
+// - test early unsubscription
+// - test early completion
+
 // These tests use string query notation
 // ABC   -- select 1 emission from A,B,C streams
 // A*    -- select 0 and more emissions from A stream

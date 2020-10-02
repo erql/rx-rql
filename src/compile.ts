@@ -54,6 +54,11 @@ function compileNode<T>(input: InputValue<T>): INode<T> {
     return input;
 }
 
+/**
+ * `A` — capture single A emission
+ *
+ * @param o Observable to track
+ */
 export function one<T>(o: Observable<T>): INode<T> {
     const deps = new Set<Observable<T>>();
     deps.add(o);
@@ -75,6 +80,9 @@ export function one<T>(o: Observable<T>): INode<T> {
     }
 }
 
+/**
+ * `A*` — capture `0` or more values of `A`
+ */
 export const some = Operator(root => {
     let r = root.create();
     let started = false;
@@ -116,6 +124,9 @@ export const some = Operator(root => {
     }
 });
 
+/**
+ * `A_` — capture one value from `A`, but don't emit it
+ */
 export const mute = Operator((root) => {
     const r = root.create();
 
@@ -128,6 +139,11 @@ export const mute = Operator((root) => {
     }
 });
 
+/**
+ * `(ABC)` — track a group of inputs
+ *
+ * @param inputs Observables and Operators to track
+ */
 export function group<T>(...inputs: INode<T>[]): INode<T> {
     // cut short if its a group of a group
     if (inputs.length == 1) {
@@ -177,10 +193,6 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
         }
 
         function handleEmission(o: Observable<T>, value, onNext): Status {
-            if (index > nodes.length - 1) {
-                throw new Error(`Index out of bounds ${index} | ${value}`);
-            }
-
             const node = nodes[index];
 
             if (node.status() == Status.greedy
@@ -211,8 +223,7 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
         }
 
         function matchesEmission(index, o) {
-            // check if first value matches
-            // NOTE: this is probably wrong
+            // check if current or next inputs matches
             for (let i = index; i < nodes.length; i++) {
                 const node = nodes[i];
                 const status = node.status();
@@ -241,43 +252,43 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
  * @param values Observables or Operators
  */
 function query<T>(...values: InputValue<T>[]) {
-    // query will immediately subscribe
-    // TODO: refactor to new Observable(...)
+    return new Observable(observer => {
+        const nodes = values.map(compileNode);
+        const rootGroup = group(...nodes);
 
-    const nodes = values.map(compileNode);
-    const rootGroup = group(...nodes);
+        const r = rootGroup.create();
 
-    const r = rootGroup.create();
+        const output = new Subject();
+        const sub = output.subscribe(observer);
 
-    const output = new Subject();
+        rootGroup.deps.forEach(o => {
+            const _sub = o.subscribe({
+                next(value) {
+                    if (!r.matchesEmission(o)) {
+                        return;
+                    }
 
-    const entries = Array.from(rootGroup.deps.values(), stream => {
-        const subscription = stream.subscribe({
-            next(value) {
-                if (!r.matchesEmission(stream)) {
-                    return;
+                    r.handleEmission(o, value, (value) => {
+                        output.next(value);
+                    });
+
+                    if (r.status() == Status.done) {
+                        output.complete();
+                    }
+                },
+                error(err){
+                    output.error(err);
                 }
+                // TODO: completions
+            });
 
-                r.handleEmission(stream, value, (value) => {
-                    output.next(value);
-                });
+            // unsubscribe with main subscription
+            sub.add(_sub);
+        });
 
-                if (r.status() == Status.done) {
-                    output.complete();
-                    entries.forEach(e => e.subscription.unsubscribe())
-                }
-            }
-            // TODO: hanle errors and completions
-        })
-
-        return {
-            stream,
-            subscription
-        }
+        // return main subscription
+        return sub;
     });
-
-    // TODO: handle unsubscription
-    return output.asObservable();
 }
 
 export { query, query as $ };
