@@ -29,7 +29,7 @@ function collectDeps<T>(nodes: INode<T>[]) {
 
 type InputValue<T> = Observable<T> | INode<T>;
 
-enum Status {
+const enum Status {
     greedy,
     undone,
     done
