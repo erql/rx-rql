@@ -1,5 +1,5 @@
 import { marbles } from 'rxjs-marbles/jest';
-import { $, mute, some } from './compile';
+import { $, mute, some } from './query';
 
 // TODO:
 // - test errors
@@ -18,6 +18,14 @@ describe('Compilation', () => {
             const A = m.hot('^-1-2-3-|')
             const expectd = '^-(1|)'
             const result = $(A);
+
+            m.expect(result).toBeObservable(expectd);
+        }))
+
+        test('AA', marbles(m => {
+            const A = m.hot('^-1-2-3-|')
+            const expectd = '^-1-(2|)'
+            const result = $(A, A);
 
             m.expect(result).toBeObservable(expectd);
         }))
