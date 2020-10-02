@@ -20,7 +20,7 @@
 
 ## 📖 Intro
 
-Query events from multiple streams
+Extract events from multiple streams using query commands
 
 ## 📦 Install
 
