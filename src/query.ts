@@ -30,7 +30,7 @@ function collectDeps<T>(nodes: INode<T>[]) {
 type InputValue<T> = Observable<T> | INode<T>;
 
 const enum Status {
-    greedy,
+    lazy,
     undone,
     done
 }
@@ -81,21 +81,41 @@ export function one<T>(o: Observable<T>): INode<T> {
 }
 
 /**
- * `A*` — capture `0` or more values of `A`
+ * `A{min, max?}` - capture at least min and at most max number of emissions
+ *
+ * ```ts
+ * many(0, 5)(A, B);
+ * many(0)(C);
+ * ```
  */
-export const some = Operator(root => {
+export const many = (min = 0, max = Infinity) => Operator(root => {
+    if (min < 0 || min > max) {
+        throw Error('min must be between 0 and ' + max);
+    }
+
     let r = root.create();
     let started = false;
+    let count = 0;
 
     return {
         status() {
-            //  status is not greedy if it already started capturing
+            //  status is not lazy if it already started capturing
             if (started){
                 return r.status();
             }
 
-            // if it hasn't started -- it's greedy
-            return Status.greedy;
+            // undone if < min required emissions
+            if (count < min){
+                return Status.undone;
+            }
+            // lazy if min < count < max
+            if (count >= min && count < max) {
+                return Status.lazy;
+            }
+            // if count >= max -- we're done
+            else {
+                return Status.done;
+            }
         },
 
         next(o, value, onNext) {
@@ -110,6 +130,7 @@ export const some = Operator(root => {
             });
 
             if (r.status() == Status.done) {
+                count++;
                 r = root.create();
                 started = false;
             }
@@ -122,7 +143,17 @@ export const some = Operator(root => {
             return r.match(o);
         }
     }
-});
+})
+
+/**
+ * `A*` — capture `0` or more values of `A`
+ */
+export const some = many(0, Infinity);
+
+/**
+ * `A?` - capture `0` or `1` value of `A`
+ */
+export const maybe = many(0, 1);
 
 /**
  * `A_` — capture one value from `A`, but don't emit it
@@ -183,7 +214,7 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
                     break;
                 }
 
-                if (nodeStatus == Status.greedy) {
+                if (nodeStatus == Status.lazy) {
                     status = nodeStatus;
                     continue;
                 }
@@ -195,7 +226,7 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
         function next(o: Observable<T>, value, onNext): Status {
             const node = nodes[index];
 
-            if (node.status() == Status.greedy
+            if (node.status() == Status.lazy
                 && index < nodes.length - 1
                 && match(index + 1, o)
             ) {
@@ -231,7 +262,7 @@ export function group<T>(...inputs: INode<T>[]): INode<T> {
                     return node.match(o)
                 }
 
-                if (status == Status.greedy && node.match(o)) {
+                if (status == Status.lazy && node.match(o)) {
                     return true;
                 }
             }

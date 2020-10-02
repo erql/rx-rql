@@ -1,5 +1,5 @@
 import { marbles } from 'rxjs-marbles/jest';
-import { $, mute, some } from './query';
+import { $, many, maybe, mute, some } from './query';
 
 // TODO:
 // - test errors
@@ -201,6 +201,48 @@ describe('Compilation', () => {
             );
             m.expect(result).toBeObservable(expectd);
         }));
+    })
+
+    describe('A{1,2}', () => {
+        test('A{1,2}', marbles(m => {
+            const A = m.hot('^-a-b-c-d-e-f-');
+            const expectd = '^-a-(b|)';
+            const result = $(many(1, 2)(A));
+            m.expect(result).toBeObservable(expectd);
+        }));
+
+        test('A{3, 3}', marbles(m => {
+            const A = m.hot('^-0-1-2-3-4-5-');
+            const expectd = '^-0-1-(2|)';
+            const result = $(many(3, 3)(A));
+            m.expect(result).toBeObservable(expectd);
+        }));
+
+        test('A{1,3}B', marbles(m => {
+            const A = m.hot('^0-1-2-3-4-5-6');
+            const B = m.hot('^-------b-b-b-');
+            const expectd = '^0-1-2--(b|)';
+            const result = $(many(1, 3)(A), B);
+            m.expect(result).toBeObservable(expectd);
+        }));
+    })
+
+    describe('A?', () => {
+        test('A?', marbles(m => {
+            const A = m.hot('^-0-1-2');
+            const B = m.hot('^----b-');
+            const expectd = '^-0--(b|)';
+            const result = $(maybe(A), B);
+            m.expect(result).toBeObservable(expectd);
+        }))
+
+        test('A? (case 2)', marbles(m => {
+            const A = m.hot('^---0-1-2');
+            const B = m.hot('^--b-');
+            const expectd = '^--(b|)';
+            const result = $(maybe(A), B);
+            m.expect(result).toBeObservable(expectd);
+        }))
     })
 })
 
