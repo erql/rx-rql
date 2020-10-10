@@ -22,9 +22,19 @@
 
 ## 📖 Intro
 
-Extract events from multiple streams using [**query commands**](#API)
+Extract events from multiple streams using [**query commands**](#-api)
 
-For example, to create a Drag-n-Drop behavior you can select all _mouse-move_ events, betweeen each _mouse-down_ and _mouse-up_:
+## 📦 Install
+
+```
+npm i rx-rql
+```
+
+It's quite small: just a **[couple of kBs](https://bundlephobia.com/result?p=rx-rql)**!
+
+## ⛱ Example
+
+To create a Drag-n-Drop behavior you can select all _mouse-move_ events, betweeen each _mouse-down_ and _mouse-up_:
 
 ```ts
 // Mouse DnD implemented using rx-rql
@@ -53,14 +63,6 @@ query(
 ```
 
 [**Try this example online**](https://stackblitz.com/edit/rx-rql?file=index.ts)
-
-## 📦 Install
-
-```
-npm i rx-rql
-```
-
-The package is quite small: just a [couple of kBs](https://bundlephobia.com/result?p=rx-rql)!
 
 ## 🔧 API
 
