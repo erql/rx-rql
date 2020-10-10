@@ -14,13 +14,45 @@
     <h1>
         Reactive Query Language
         <br/>
-        <br/>
+        <a href="https://www.npmjs.com/package/rx-rql"><img src="https://img.shields.io/npm/v/rx-rql" alt="NPM"></a>
+        <a href="https://bundlephobia.com/result?p=rx-rql@latest"><img src="https://img.shields.io/bundlephobia/minzip/rx-rql?label=gzipped" alt="Bundlephobia"></a>
+        <a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/npm/l/rx-rql" alt="MIT license"></a>
     </h1>
 </div>
 
 ## 📖 Intro
 
-Extract events from multiple streams using query commands
+Extract events from multiple streams using [**query commands**](#API)
+
+For example, to create a Drag-n-Drop behavior you can select all _mouse-move_ events, betweeen each _mouse-down_ and _mouse-up_:
+
+```ts
+// Mouse DnD implemented using rx-rql
+import { fromEvent } from 'rxjs';
+import { query, some, mute } from 'rx-rql';
+
+// get dom element to drag
+const item = document.getElementById('item');
+const updatePosition = p => {
+  item.style.left = p.x + 'px';
+  item.style.top = p.y + 'px';
+};
+
+// capture mouse down, up and move
+const down$ = fromEvent(item, 'mousedown');
+const move$ = fromEvent(document, 'mousemove');
+const up$   = fromEvent(document, 'mouseup');
+
+// (_down, move*, _up)*
+// listen to a query & update element position
+query(
+  some(mute(down$), some(move$), mute(up$))
+)
+  .subscribe(updatePosition)
+
+```
+
+[**Try this example online**](https://stackblitz.com/edit/rx-rql?file=index.ts)
 
 ## 📦 Install
 
@@ -28,7 +60,7 @@ Extract events from multiple streams using query commands
 npm i rx-rql
 ```
 
-Or [**try it online**](https://stackblitz.com/edit/rx-rql?file=index.ts)
+The package is quite small: just a [couple of kBs](https://bundlephobia.com/result?p=rx-rql)!
 
 ## 🔧 API
 
